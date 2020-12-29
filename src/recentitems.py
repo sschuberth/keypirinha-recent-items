@@ -6,6 +6,17 @@ from keypirinha_wintypes import FOLDERID
 
 import os.path
 import time
+import winreg as reg
+
+
+def _enum_registry_keys(key, sub_key):
+    try:
+        with reg.OpenKey(key, sub_key) as key:
+            count = reg.QueryInfoKey(key)[0]
+            for i in range(count):
+                yield os.path.join(sub_key, reg.EnumKey(key, i))
+    except OSError:
+        return []
 
 
 class RecentItems(kp.Plugin):
@@ -39,8 +50,10 @@ class RecentItems(kp.Plugin):
     CONFIG_SECTION_MAIN = "main"
 
     DEFAULT_SCAN_RECENT_DIRECTORY = True
+    DEFAULT_SCAN_RECENT_ITEMS = True
 
     scan_recent_directory = DEFAULT_SCAN_RECENT_DIRECTORY
+    scan_recent_items = DEFAULT_SCAN_RECENT_ITEMS
 
     def __init__(self):
         super().__init__()
@@ -49,16 +62,23 @@ class RecentItems(kp.Plugin):
         self._read_config()
 
     def on_catalog(self):
-        catalog = []
-
         if self.scan_recent_directory:
             start = time.perf_counter()
+            catalog = []
 
             self._add_from_recent_directory(catalog)
+            self.merge_catalog(catalog)
 
             self._log_catalog_duration(start, "link", len(catalog))
 
-        self.set_catalog(catalog)
+        if self.scan_recent_items:
+            start = time.perf_counter()
+            catalog = []
+
+            self._add_from_recent_items(catalog)
+            self.merge_catalog(catalog)
+
+            self._log_catalog_duration(start, "item", len(catalog))
 
     def on_execute(self, item, action):
         kpu.execute_default_action(self, item, action)
@@ -73,8 +93,17 @@ class RecentItems(kp.Plugin):
             "scan_recent_directory", self.CONFIG_SECTION_MAIN, self.DEFAULT_SCAN_RECENT_DIRECTORY
         )
 
-        config_changed = new_scan_recent_directory != self.scan_recent_directory
+        new_scan_recent_items = self.load_settings().get_bool(
+            "scan_recent_items", self.CONFIG_SECTION_MAIN, self.DEFAULT_SCAN_RECENT_ITEMS
+        )
+
+        config_changed = (
+            new_scan_recent_directory != self.scan_recent_directory or
+            new_scan_recent_items != self.scan_recent_items
+        )
+
         self.scan_recent_directory = new_scan_recent_directory
+        self.scan_recent_items = new_scan_recent_items
 
         return config_changed
 
@@ -105,6 +134,27 @@ class RecentItems(kp.Plugin):
                 hit_hint=kp.ItemHitHint.KEEPALL
             )
             catalog.append(item)
+
+    def _add_from_recent_items(self, catalog):
+        try:
+            root_key = reg.HKEY_CURRENT_USER
+            recent_apps_key = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Search\RecentApps"
+            for app_key in _enum_registry_keys(root_key, recent_apps_key):
+                for item_key in _enum_registry_keys(root_key, os.path.join(app_key, "RecentItems")):
+                    with reg.OpenKey(root_key, item_key) as item:
+                        path = reg.QueryValueEx(item, "Path")[0]
+                        item = self.create_item(
+                            category=kp.ItemCategory.FILE,
+                            label=os.path.basename(path),
+                            short_desc="Recent item: " + path,
+                            target=path,
+                            args_hint=kp.ItemArgsHint.ACCEPTED,
+                            hit_hint=kp.ItemHitHint.KEEPALL
+                        )
+                        catalog.append(item)
+        except OSError as e:
+            self.dbg(str(e))
+            return
 
     def _log_catalog_duration(self, start, what, count):
         elapsed = time.perf_counter() - start
