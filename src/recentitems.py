@@ -53,9 +53,11 @@ class RecentItems(kp.Plugin):
 
     DEFAULT_SCAN_RECENT_DIRECTORY = True
     DEFAULT_SCAN_RECENT_ITEMS = True
+    DEFAULT_SCAN_JUMP_LISTS = True
 
     scan_recent_directory = DEFAULT_SCAN_RECENT_DIRECTORY
     scan_recent_items = DEFAULT_SCAN_RECENT_ITEMS
+    scan_jump_lists = DEFAULT_SCAN_JUMP_LISTS
 
     def __init__(self):
         super().__init__()
@@ -105,13 +107,19 @@ class RecentItems(kp.Plugin):
             "scan_recent_items", self.CONFIG_SECTION_MAIN, self.DEFAULT_SCAN_RECENT_ITEMS
         )
 
+        new_scan_jump_lists = self.load_settings().get_bool(
+            "scan_jump_lists", self.CONFIG_SECTION_MAIN, self.DEFAULT_SCAN_JUMP_LISTS
+        )
+
         config_changed = (
             new_scan_recent_directory != self.scan_recent_directory or
-            new_scan_recent_items != self.scan_recent_items
+            new_scan_recent_items != self.scan_recent_items or
+            new_scan_jump_lists != self.scan_jump_lists
         )
 
         self.scan_recent_directory = new_scan_recent_directory
         self.scan_recent_items = new_scan_recent_items
+        self.scan_jump_lists = new_scan_jump_lists
 
         return config_changed
 
